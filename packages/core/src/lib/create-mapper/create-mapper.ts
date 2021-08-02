@@ -1,4 +1,5 @@
 import type {
+  Converter,
   CreateMapOptions,
   CreateMapperOptions,
   MapArrayOptions,
@@ -6,9 +7,13 @@ import type {
   Mapper,
   Mapping,
   MappingProfile,
+  PrimitiveConstructorWithDate,
+  ValueSelector,
 } from '@automapper/types';
 import { mapArray, mapMutate, mapReturn } from '../map';
 import { createMapFluentFunction } from './create-map-fluent-function.util';
+import { mappingNullCheck } from '../utils';
+import { applyTypeConverters } from './apply-type-converters.util';
 
 /**
  * Method to create a Mapper with a plugin
@@ -27,8 +32,29 @@ export function createMapper<TKey = unknown>({
   // get the plugin
   const plugin = pluginInitializer(errorHandler);
 
+  // type converters
+  const typeConverters = new WeakMap<
+    PrimitiveConstructorWithDate,
+    WeakMap<PrimitiveConstructorWithDate, ValueSelector | Converter>
+  >();
+
   return {
     name,
+    addTypeConverter(source, destination, converter) {
+      const sourceTypeConverters = typeConverters.get(source);
+      if (sourceTypeConverters) {
+        sourceTypeConverters.set(destination, converter);
+        return this;
+      }
+
+      typeConverters.set(
+        source,
+        new WeakMap<PrimitiveConstructorWithDate, ValueSelector | Converter>([
+          [destination, converter],
+        ])
+      );
+      return this;
+    },
     createMap(source: any, destination: any, options: CreateMapOptions = {}) {
       // if namingConventions isn't passed in for this Mapping pair, use the global ones
       if (options && !options.namingConventions) {
@@ -37,6 +63,11 @@ export function createMapper<TKey = unknown>({
 
       // create the initial mapping between source and destination
       const mapping = plugin.initializeMapping(source, destination, options);
+
+      // apply typeConverters
+      if (mapping) {
+        applyTypeConverters(mapping, typeConverters);
+      }
 
       // return the FluentFunction for chaining
       return createMapFluentFunction(mapping!);
@@ -63,10 +94,13 @@ export function createMapper<TKey = unknown>({
       // run preMap if available
       const [sourceInstance] = preMap
         ? preMap.bind(plugin)(source, destination, sourceObj)
-        : [];
+        : [sourceObj];
 
       // get mapping between Source and Destination
       const mapping: Mapping | undefined = this.getMapping(source, destination);
+
+      // null check mapping and fail fast
+      mappingNullCheck(mapping, errorHandler, source, destination);
 
       // check mutate or return
 
@@ -81,7 +115,7 @@ export function createMapper<TKey = unknown>({
         destinationObjOrOptions == null
       ) {
         const result = mapReturn(
-          sourceInstance ?? sourceObj,
+          sourceInstance,
           mapping!,
           destinationObjOrOptions as MapOptions,
           this,
@@ -92,7 +126,7 @@ export function createMapper<TKey = unknown>({
       }
 
       mapMutate(
-        sourceInstance ?? sourceObj,
+        sourceInstance,
         mapping!,
         options || {},
         this,
@@ -133,15 +167,14 @@ export function createMapper<TKey = unknown>({
 
       // default runPreMap to true
       const { runPreMap = true } = options || {};
-      let adjustedSourceArr = sourceArr;
 
       // run preMapArray if available
       if (runPreMap && plugin.preMapArray) {
-        adjustedSourceArr = plugin.preMapArray(source, adjustedSourceArr);
+        sourceArr = plugin.preMapArray(source, sourceArr);
       }
 
       return mapArray(
-        adjustedSourceArr,
+        sourceArr,
         destination,
         source,
         options || {},
