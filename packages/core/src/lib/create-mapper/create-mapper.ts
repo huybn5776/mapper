@@ -6,7 +6,6 @@ import type {
   MapOptions,
   Mapper,
   Mapping,
-  MappingProfile,
   PrimitiveConstructorWithDate,
   ValueSelector,
 } from '@automapper/types';
@@ -55,7 +54,7 @@ export function createMapper<TKey = unknown>({
       );
       return this;
     },
-    createMap(source: any, destination: any, options: CreateMapOptions = {}) {
+    createMap(source, destination, options: CreateMapOptions = {}) {
       // if namingConventions isn't passed in for this Mapping pair, use the global ones
       if (options && !options.namingConventions) {
         options.namingConventions = namingConventions;
@@ -73,14 +72,14 @@ export function createMapper<TKey = unknown>({
       return createMapFluentFunction(mapping!);
     },
     getMapping: plugin.getMapping.bind(plugin),
-    addProfile(profile: MappingProfile) {
+    addProfile(profile) {
       profile(this);
       return this;
     },
     map(
       sourceObj: Record<string, unknown>,
-      destination: any,
-      source: any,
+      destination,
+      source,
       destinationObjOrOptions?: Record<string, unknown>,
       options?: MapOptions
     ) {
@@ -93,7 +92,7 @@ export function createMapper<TKey = unknown>({
 
       // run preMap if available
       const [sourceInstance] = preMap
-        ? preMap.bind(plugin)(source, destination, sourceObj)
+        ? preMap.apply(plugin, [source, destination, sourceObj])
         : [sourceObj];
 
       // get mapping between Source and Destination
@@ -122,7 +121,11 @@ export function createMapper<TKey = unknown>({
           errorHandler
         );
 
-        return postMap ? postMap.bind(plugin)(destination, result) : result;
+        if (postMap) {
+          return postMap.apply(plugin, [destination, result]);
+        }
+
+        return result;
       }
 
       mapMutate(
@@ -139,8 +142,8 @@ export function createMapper<TKey = unknown>({
     },
     mapAsync(
       sourceObj: Record<string, unknown>,
-      destination: any,
-      source: any,
+      destination,
+      source,
       destinationObjOrOptions?: Record<string, unknown>,
       options?: MapOptions
     ) {
@@ -156,8 +159,8 @@ export function createMapper<TKey = unknown>({
     },
     mapArray(
       sourceArr: Record<string, unknown>[],
-      destination: any,
-      source: any,
+      destination,
+      source,
       options?: MapArrayOptions
     ) {
       // if source is null/undefined, return
@@ -170,7 +173,7 @@ export function createMapper<TKey = unknown>({
 
       // run preMapArray if available
       if (runPreMap && plugin.preMapArray) {
-        sourceArr = plugin.preMapArray(source, sourceArr);
+        sourceArr = plugin.preMapArray.apply(plugin, [source, sourceArr]);
       }
 
       return mapArray(
@@ -184,8 +187,8 @@ export function createMapper<TKey = unknown>({
     },
     mapArrayAsync(
       sourceArr: Record<string, unknown>[],
-      destination: any,
-      source: any,
+      destination,
+      source,
       options?: MapArrayOptions
     ) {
       return Promise.resolve(
